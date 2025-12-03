@@ -1,0 +1,103 @@
+<!-- templates/map.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Nearby Donors Map</title>
+  <style>
+    #map { height: 80vh; width: 100%; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    #controls { padding: 10px; background: #f7f7f7; display:flex; gap:8px; align-items:center; }
+    #info { padding: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>Radius (km): <input id="radius" type="number" value="5" min="1" max="50"></label>
+    <label>Blood Group:
+      <select id="bloodGroup">
+        <option value="">Any</option>
+        <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+        <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+      </select>
+    </label>
+    <button id="findBtn">Find nearby donors</button>
+    <div id="info"></div>
+  </div>
+  <div id="map"></div>
+
+  <script>
+    const googleMapsKey = "{{ google_maps_key }}";
+    function loadScript(src, cb) {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = cb;
+      document.head.appendChild(s);
+    }
+
+    function initMap() {
+      // default center
+      const defaultCenter = { lat: 20.5937, lng: 78.9629 }; // India
+      const map = new google.maps.Map(document.getElementById('map'), {
+        center: defaultCenter,
+        zoom: 5,
+      });
+
+      const userMarker = new google.maps.Marker({ map, title: 'You' });
+      const markers = [];
+
+      function clearMarkers() {
+        markers.forEach(m => m.setMap(null));
+        markers.length = 0;
+      }
+
+      document.getElementById('findBtn').addEventListener('click', async () => {
+        const radiusKm = parseFloat(document.getElementById('radius').value) || 5;
+        const bg = document.getElementById('bloodGroup').value || '';
+        // get current position
+        if (!navigator.geolocation) {
+          alert('Geolocation not supported');
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          map.setCenter({ lat, lng });
+          map.setZoom(13);
+          userMarker.setPosition({ lat, lng });
+
+          // call your backend
+          const url = `/donors/nearby?lat=${lat}&lng=${lng}&radius_km=${radiusKm}${bg ? '&blood_group=' + encodeURIComponent(bg) : ''}`;
+          document.getElementById('info').textContent = 'Searching...';
+          const res = await fetch(url);
+          const data = await res.json();
+          document.getElementById('info').textContent = `Found ${data.count} donors`;
+          clearMarkers();
+
+          if (data.status === 'success' && data.donors) {
+            data.donors.forEach(d => {
+              const marker = new google.maps.Marker({
+                map,
+                position: { lat: d.lat, lng: d.lng },
+                title: `${d.name} — ${d.blood_group} (${d.distance_km} km)`
+              });
+              const infow = new google.maps.InfoWindow({
+                content: `<b>${d.name}</b><br>Blood: ${d.blood_group}<br>Phone: ${d.contact || 'N/A'}<br>Distance: ${d.distance_km} km`
+              });
+              marker.addListener('click', () => infow.open(map, marker));
+              markers.push(marker);
+            });
+          }
+        }, (err) => {
+          alert('Geolocation error: ' + err.message);
+        });
+      });
+    }
+
+    loadScript(`https://maps.googleapis.com/maps/api/js?key=${googleMapsKey}&libraries=places`, () => {
+      initMap();
+    });
+  </script>
+</body>
+</html>
